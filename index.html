@@ -144,7 +144,41 @@
     .delete-btn:hover { background: #fee2e2; }
     .empty { justify-content: center; color: #9ca3af; padding: 20px 0; border-bottom: none; }
 
+    .row-btn { background: transparent; color: #6b7280; padding: 4px 8px; font-size: 14px; }
+    .row-btn:hover { background: #f3f4f6; }
+
+    /* 수정 중인 줄 */
+    li.editing { flex-wrap: wrap; }
+    .edit-text, .edit-date {
+      padding: 8px 10px;
+      font-size: 15px;
+      border: 1px solid #3b82f6;
+      border-radius: 8px;
+      outline: none;
+      font-family: inherit;
+    }
+    .edit-text { flex: 1 1 200px; min-width: 0; }
+    .edit-date { flex: 0 0 auto; }
+    .save-btn { background: #3b82f6; color: #fff; padding: 8px 12px; font-size: 14px; }
+    .save-btn:hover { background: #2563eb; }
+
     .footer { margin-top: 12px; font-size: 14px; color: #6b7280; }
+
+    /* 백업 */
+    .backup {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 14px;
+      color: #6b7280;
+    }
+    .backup .label { margin-right: auto; }
+    .backup button { background: #f3f4f6; color: #374151; padding: 8px 12px; font-size: 14px; }
+    .backup button:hover { background: #e5e7eb; }
 
     /* ---------- 좁은 화면: 칸 안에는 점만 표시 ---------- */
     @media (max-width: 560px) {
@@ -184,6 +218,13 @@
       </form>
       <ul id="todo-list"></ul>
       <p class="footer" id="counter"></p>
+    </section>
+
+    <section class="backup">
+      <span class="label">백업: 목록을 파일로 저장해 두면 브라우저 데이터가 지워져도 되살릴 수 있어요</span>
+      <button type="button" id="export-btn">내보내기</button>
+      <button type="button" id="import-btn">가져오기</button>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
     </section>
   </div>
 
@@ -230,6 +271,7 @@
     saveTodos(); // 옮긴 날짜를 바로 저장
 
     let selectedKey = todayKey;
+    let editingId = null; // 지금 수정 중인 할 일의 id
     let viewYear = new Date().getFullYear();
     let viewMonth = new Date().getMonth(); // 0~11
 
@@ -314,28 +356,82 @@
       }
 
       items.forEach((todo) => {
-        const li = document.createElement("li");
-        if (todo.done) li.classList.add("done");
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = todo.done;
-        checkbox.addEventListener("change", () => toggleTodo(todo.id));
-
-        const text = document.createElement("span");
-        text.textContent = todo.text; // HTML 삽입 방지
-
-        const delBtn = document.createElement("button");
-        delBtn.className = "delete-btn";
-        delBtn.textContent = "삭제";
-        delBtn.addEventListener("click", () => deleteTodo(todo.id));
-
-        li.append(checkbox, text, delBtn);
-        list.appendChild(li);
+        list.appendChild(todo.id === editingId ? editRow(todo) : viewRow(todo));
       });
 
       const remaining = items.filter((t) => !t.done).length;
       counter.textContent = `이 날짜 ${items.length}개 · 남은 일 ${remaining}개`;
+    }
+
+    // 보통 줄: 체크박스 · 글자 · 수정 · 삭제
+    function viewRow(todo) {
+      const li = document.createElement("li");
+      if (todo.done) li.classList.add("done");
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = todo.done;
+      checkbox.addEventListener("change", () => toggleTodo(todo.id));
+
+      const text = document.createElement("span");
+      text.textContent = todo.text; // HTML 삽입 방지
+      text.title = "더블클릭해서 수정";
+      text.addEventListener("dblclick", () => startEdit(todo.id));
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "row-btn";
+      editBtn.textContent = "수정";
+      editBtn.addEventListener("click", () => startEdit(todo.id));
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "delete-btn";
+      delBtn.textContent = "삭제";
+      delBtn.addEventListener("click", () => deleteTodo(todo.id));
+
+      li.append(checkbox, text, editBtn, delBtn);
+      return li;
+    }
+
+    // 수정 중인 줄: 글자 입력 · 날짜 선택 · 저장 · 취소
+    function editRow(todo) {
+      const li = document.createElement("li");
+      li.classList.add("editing");
+
+      const textInput = document.createElement("input");
+      textInput.type = "text";
+      textInput.className = "edit-text";
+      textInput.value = todo.text;
+      textInput.setAttribute("aria-label", "할 일 내용");
+
+      const dateInput = document.createElement("input");
+      dateInput.type = "date";
+      dateInput.className = "edit-date";
+      dateInput.value = todo.date;
+      dateInput.setAttribute("aria-label", "날짜");
+
+      const save = () => saveEdit(todo.id, textInput.value, dateInput.value);
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "save-btn";
+      saveBtn.textContent = "저장";
+      saveBtn.addEventListener("click", save);
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "row-btn";
+      cancelBtn.textContent = "취소";
+      cancelBtn.addEventListener("click", cancelEdit);
+
+      // Enter = 저장, Esc = 취소
+      [textInput, dateInput].forEach((el) =>
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); save(); }
+          if (e.key === "Escape") cancelEdit();
+        })
+      );
+
+      li.append(textInput, dateInput, saveBtn, cancelBtn);
+      requestAnimationFrame(() => { textInput.focus(); textInput.select(); });
+      return li;
     }
 
     function render() {
@@ -346,6 +442,7 @@
     // ---------- 동작 ----------
     function selectDate(key) {
       selectedKey = key;
+      editingId = null;
       const d = fromKey(key);
       viewYear = d.getFullYear();   // 다른 달 날짜를 누르면 그 달로 이동
       viewMonth = d.getMonth();
@@ -367,9 +464,95 @@
 
     function deleteTodo(id) {
       todos = todos.filter((t) => t.id !== id);
+      if (editingId === id) editingId = null;
       saveTodos();
       render();
     }
+
+    // ---------- 수정 ----------
+    function startEdit(id) {
+      editingId = id;
+      renderList();
+    }
+
+    function cancelEdit() {
+      editingId = null;
+      renderList();
+    }
+
+    function saveEdit(id, newText, newDate) {
+      const text = newText.trim();
+      if (!text) return; // 빈 내용은 저장하지 않음 (지우려면 삭제 버튼)
+      const date = DATE_RE.test(newDate) ? newDate : null;
+      todos = todos.map((t) => (t.id === id ? { ...t, text, date: date || t.date } : t));
+      editingId = null;
+      saveTodos();
+      render();
+    }
+
+    // ---------- 백업: 내보내기 / 가져오기 ----------
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+    function exportTodos() {
+      const data = { app: "todo-calendar", version: 1, exportedAt: new Date().toISOString(), todos };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `할일-백업-${todayKey}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // 파일 안의 항목을 검사해서 올바른 것만 골라냄
+    function cleanImported(raw) {
+      const arr = Array.isArray(raw) ? raw : raw && Array.isArray(raw.todos) ? raw.todos : null;
+      if (!arr) return null;
+      return arr
+        .filter((t) => t && typeof t.text === "string" && t.text.trim())
+        .map((t, i) => ({
+          id: typeof t.id === "number" ? t.id : Date.now() + i,
+          text: t.text.trim(),
+          done: t.done === true,
+          date: typeof t.date === "string" && DATE_RE.test(t.date) ? t.date : todayKey,
+        }));
+    }
+
+    function importTodos(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        let incoming;
+        try {
+          incoming = cleanImported(JSON.parse(reader.result));
+        } catch {
+          incoming = null;
+        }
+        if (!incoming) {
+          alert("백업 파일을 읽을 수 없어요. 이 사이트에서 내보낸 .json 파일인지 확인해 주세요.");
+          return;
+        }
+
+        // 지금 목록은 지우지 않고, 없는 항목만 더함 (같은 id는 건너뜀)
+        const existing = new Set(todos.map((t) => t.id));
+        const added = incoming.filter((t) => !existing.has(t.id));
+        todos = todos.concat(added);
+        saveTodos();
+        render();
+        alert(`할 일 ${added.length}개를 가져왔어요.` +
+          (incoming.length > added.length ? ` (이미 있는 ${incoming.length - added.length}개는 건너뜀)` : ""));
+      };
+      reader.readAsText(file);
+    }
+
+    const importFile = document.getElementById("import-file");
+    document.getElementById("export-btn").addEventListener("click", exportTodos);
+    document.getElementById("import-btn").addEventListener("click", () => importFile.click());
+    importFile.addEventListener("change", () => {
+      if (importFile.files[0]) importTodos(importFile.files[0]);
+      importFile.value = ""; // 같은 파일을 다시 골라도 동작하게
+    });
 
     function moveMonth(delta) {
       const d = new Date(viewYear, viewMonth + delta, 1);
